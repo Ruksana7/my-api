@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: myapi_db
+    environment:
+      POSTGRES_USER: myapi_user
+      POSTGRES_PASSWORD: myapi_pass
+      POSTGRES_DB: myapi_db
+    ports:
+      - "5433:5432"   # host:container (5433 so it doesn't clash with your local 5432)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myapi_user -d myapi_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - pgdata_myapi:/var/lib/postgresql/data
+
+  api:
+    build: .
+    container_name: myapi_api
+    environment:
+      PORT: 4000
+      JWT_SECRET: supersecret_in_docker
+      DATABASE_URL: postgres://myapi_user:myapi_pass@db:5432/myapi_db
+      NODE_ENV: production
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata_myapi:

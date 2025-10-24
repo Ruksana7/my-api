@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: myapi_user
+          POSTGRES_PASSWORD: myapi_pass
+          POSTGRES_DB: myapi_db_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U myapi_user -d myapi_db_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # apply migrations to the CI Postgres
+      - name: Migrate test DB
+        env:
+          DATABASE_URL: postgres://myapi_user:myapi_pass@localhost:5432/myapi_db_test
+        run: node src/migrate.js
+
+      - name: Run tests
+        env:
+          NODE_ENV: test
+          JWT_SECRET: testsecret
+          DATABASE_URL: postgres://myapi_user:myapi_pass@localhost:5432/myapi_db_test
+        run: node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand
+

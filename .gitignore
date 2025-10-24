@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# env & local data
+.env
+data/
+coverage/
+docs/*.local.*
+
+# OS/editor
+.DS_Store
+*.swp
+
+# docker volumes (if any)
+pgdata_myapi/
