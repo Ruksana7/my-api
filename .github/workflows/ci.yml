@@ -33,7 +33,6 @@ jobs:
 
       - run: npm ci
 
-      # apply migrations to the CI Postgres
       - name: Migrate test DB
         env:
           DATABASE_URL: postgres://myapi_user:myapi_pass@localhost:5432/myapi_db_test
@@ -46,3 +45,9 @@ jobs:
           DATABASE_URL: postgres://myapi_user:myapi_pass@localhost:5432/myapi_db_test
         run: node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand
 
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/
