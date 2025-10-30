@@ -1,52 +1,85 @@
-import * as Todo from '../models/todoModel.js';
+import { z } from 'zod';
+import {
+  listTodos as listTodosModel,
+  getTodoById,
+  createTodo as createTodoModel,
+  updateTodo as updateTodoModel,
+  deleteTodo as deleteTodoModel
+} from '../models/todoModel.js';
 
-export async function list(req, res, next) {
+const createBodySchema = z.object({
+  title: z.string().min(1, 'title (string) is required'),
+  done: z.boolean().optional(),
+  priority: z.coerce.number().int().min(1).max(3).optional()
+});
+
+const patchBodySchema = z.object({
+  title: z.string().min(1).optional(),
+  done: z.boolean().optional(),
+  priority: z.coerce.number().int().min(1).max(3).optional()
+}).refine(obj => Object.keys(obj).length > 0, { message: 'at least one field required' });
+
+export async function listTodos(req, res, next) {
   try {
-      const { page, limit, search, sort, order } = req.query;
-      const data = await Todo.getTodos({ page, limit, search, userId: req.user.id, sort, order });
-    res.json(data);
-  } catch (e) { next(e); }
+    const userId = req.user.id;
+    const page = Number(req.query.page ?? 1);
+    const limit = Number(req.query.limit ?? 10);
+    const q = req.query.q;
+    const done = req.query.done === 'true' ? true : req.query.done === 'false' ? false : undefined;
+
+    const result = await listTodosModel(userId, { page, limit, q, done });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 }
 
-export async function get(req, res, next) {
+export async function showTodo(req, res, next) {
   try {
-    const todo = await Todo.getTodoById(Number(req.params.id), req.user.id);
-    if (!todo) return res.status(404).json({ error: 'Not found' });
+    const userId = req.user.id;
+    const { id } = req.params;
+    const todo = await getTodoById(userId, id);
+    if (!todo) return res.status(404).json({ error: 'not found' });
     res.json(todo);
-  } catch (e) { next(e); }
+  } catch (err) {
+    next(err);
+  }
 }
 
-export async function create(req, res, next) {
+export async function createTodo(req, res, next) {
   try {
-    const { title, done, priority } = req.body || {};
-    if (!title || typeof title !== 'string') {
-      return res.status(400).json({ error: 'title (string) is required' });
-    }
-    const todo = await Todo.createTodo({ title, done: !!done, priority, userId: req.user.id });
+    const userId = req.user.id;
+    const body = createBodySchema.parse(req.body ?? {});
+    const todo = await createTodoModel(userId, body);
     res.status(201).json(todo);
-  } catch (e) { next(e); }
+  } catch (err) {
+    if (err?.issues) return res.status(400).json({ error: 'invalid input', details: err.issues.map(x=>x.message) });
+    next(err);
+  }
 }
 
-export async function update(req, res, next) {
+export async function updateTodo(req, res, next) {
   try {
-    const { title, done, priority } = req.body || {};
-    if (title !== undefined && typeof title !== 'string') {
-      return res.status(400).json({ error: 'title must be string' });
-    }
-    if (done !== undefined && typeof done !== 'boolean') {
-      return res.status(400).json({ error: 'done must be boolean' });
-    }
-    const todo = await Todo.updateTodo(Number(req.params.id), { title, done, priority, userId: req.user.id });
-    if (!todo) return res.status(404).json({ error: 'Not found or not yours' });
+    const userId = req.user.id;
+    const { id } = req.params;
+    const body = patchBodySchema.parse(req.body ?? {});
+    const todo = await updateTodoModel(userId, id, body);
+    if (!todo) return res.status(404).json({ error: 'not found' });
     res.json(todo);
-  } catch (e) { next(e); }
+  } catch (err) {
+    if (err?.issues) return res.status(400).json({ error: 'invalid input', details: err.issues.map(x=>x.message) });
+    next(err);
+  }
 }
 
-export async function remove(req, res, next) {
+export async function deleteTodo(req, res, next) {
   try {
-    const todo = await Todo.deleteTodo(Number(req.params.id), req.user.id);
-    if (!todo) return res.status(404).json({ error: 'Not found or not yours' });
-    res.json(todo);
-  } catch (e) { next(e); }
+    const userId = req.user.id;
+    const { id } = req.params;
+    const removed = await deleteTodoModel(userId, id);
+    if (!removed) return res.status(404).json({ error: 'not found' });
+    res.json(removed);
+  } catch (err) {
+    next(err);
+  }
 }
-

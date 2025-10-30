@@ -1,128 +1,100 @@
-// src/models/todoModel.js
 import { pool } from '../db.js';
 
-/**
- * List todos for a specific user, with pagination + optional search.
- * @param {Object} opts
- * @param {number} opts.page
- * @param {number} opts.limit
- * @param {string} opts.search
- * @param {number} opts.userId  // REQUIRED (caller should pass req.user.id)
- */
-export async function getTodos({ page = 1, limit = 10, search = '', userId, sort = 'created_at', order = 'desc' }) {
-  if (userId == null) return { page, limit, total: 0, items: [] };
-
+// list with pagination + filters
+export async function listTodos(userId, { page=1, limit=10, q, done } = {}) {
   const offset = (page - 1) * limit;
 
-  let where = 'WHERE user_id = $1';
-  const params = [userId];
-  let next = 2;
+  const wheres = ['user_id = $1'];
+  const vals = [userId];
+  let i = 2;
 
-  if (search) {
-    where += ` AND lower(title) LIKE $${next++}`;
-    params.push(`%${search.toLowerCase()}%`);
+  if (typeof q === 'string' && q.trim()) {
+    wheres.push(`title ILIKE $${i++}`);
+    vals.push(`%${q.trim()}%`);
+  }
+  if (done !== undefined) {
+    wheres.push(`done = $${i++}`);
+    vals.push(done);
   }
 
-  // ensure safe whitelist for sort/order
-  const sortCol = sort === 'priority' ? 'priority' : 'created_at';
-  const sortDir = order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const whereSql = wheres.length ? `WHERE ${wheres.join(' AND ')}` : '';
 
-  const countSql = `SELECT COUNT(*)::int AS total FROM public.todos ${where}`;
-  const { rows: crow } = await pool.query(countSql, params);
-  const total = crow[0]?.total ?? 0;
-
-  const dataParams = [...params, limit, offset];
-  const limitPos = next++;
-  const offsetPos = next;
+  const countSql = `SELECT COUNT(*)::int AS total FROM public.todos ${whereSql}`;
+  const { rows: countRows } = await pool.query(countSql, vals);
+  const total = countRows[0]?.total ?? 0;
 
   const dataSql = `
     SELECT id, title, done, priority,
-           created_at AS "createdAt",
-           updated_at AS "updatedAt"
-    FROM public.todos
-    ${where}
-    ORDER BY ${sortCol} ${sortDir}, id DESC
-    LIMIT $${limitPos} OFFSET $${offsetPos}
+           created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM public.todos
+      ${whereSql}
+     ORDER BY created_at DESC
+     LIMIT $${i++} OFFSET $${i}
   `;
-  const { rows: items } = await pool.query(dataSql, dataParams);
+  const { rows } = await pool.query(dataSql, [...vals, limit, offset]);
 
-  return { page, limit, total, items };
+  return { page, limit, total, items: rows };
 }
 
-/**
- * Get a single todo by id that belongs to the user.
- */
-export async function getTodoById(id, userId) {
-  if (userId == null) return null;
+// get single (scoped to user)
+export async function getTodoById(userId, id) {
   const { rows } = await pool.query(
-      `SELECT id, title, done, priority,
-             created_at AS "createdAt",
-             updated_at AS "updatedAt"
-          FROM public.todos
-         WHERE id = $1 AND user_id = $2`
-    [id, userId]
+    `SELECT id, title, done, priority,
+            created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM public.todos
+      WHERE user_id = $1 AND id = $2
+      LIMIT 1`,
+    [userId, Number(id)]
   );
   return rows[0] || null;
 }
 
-/**
- * Create a todo for the user.
- */
-export async function createTodo({ title, done = false, userId, priority }) {
-  if (userId == null) return null;
+// create
+export async function createTodo(userId, { title, done=false, priority=1 }) {
   const id = Date.now();
-
   const { rows } = await pool.query(
-    `INSERT INTO public.todos (id, title, done, user_id, priority)
-     VALUES ($1, $2, $3, $4, COALESCE($5, 2))
+    `INSERT INTO public.todos (id, user_id, title, done, priority)
+     VALUES ($1,$2,$3,$4,$5)
      RETURNING id, title, done, priority,
-               created_at AS "createdAt",
-               updated_at AS "updatedAt"`,
-    [id, title, done, userId, priority ?? null]
+               created_at AS "createdAt", updated_at AS "updatedAt"`,
+    [id, userId, title, !!done, Number(priority)]
   );
   return rows[0];
 }
 
-/**
- * Update a todo that belongs to the user (partial update).
- */
-export async function updateTodo(id, { title, done, priority, userId }) {
-  if (userId == null) return null;
-
+// update (partial)
+export async function updateTodo(userId, id, { title, done, priority }) {
   const sets = [];
   const vals = [];
   let i = 1;
 
-  if (title !== undefined) { sets.push(`title = $${i++}`); vals.push(title); }
-  if (done  !== undefined) { sets.push(`done  = $${i++}`); vals.push(done); }
-  if (priority !== undefined) { sets.push(`priority = $${i++}`); vals.push(priority); }
+  if (title !== undefined)  { sets.push(`title = $${i++}`);    vals.push(title); }
+  if (done  !== undefined)  { sets.push(`done = $${i++}`);     vals.push(done); }
+  if (priority !== undefined) { sets.push(`priority = $${i++}`); vals.push(Number(priority)); }
+
   if (!sets.length) return null;
 
-  vals.push(id, userId);
+  vals.push(userId);
+  vals.push(Number(id));
 
   const { rows } = await pool.query(
     `UPDATE public.todos
-     SET ${sets.join(', ')}, updated_at = now()
-     WHERE id = $${i++} AND user_id = $${i}
-     RETURNING id, title, done, priority,
-               created_at AS "createdAt",
-               updated_at AS "updatedAt"`,
+        SET ${sets.join(', ')}, updated_at = now()
+      WHERE user_id = $${i++} AND id = $${i}
+      RETURNING id, title, done, priority,
+                created_at AS "createdAt", updated_at AS "updatedAt"`,
     vals
   );
   return rows[0] || null;
 }
 
-/**
- * Delete a todo that belongs to the user.
- */
-export async function deleteTodo(id, userId) {
-  if (userId == null) return null;
+// delete
+export async function deleteTodo(userId, id) {
   const { rows } = await pool.query(
     `DELETE FROM public.todos
-     WHERE id = $1 AND user_id = $2
-     RETURNING id, title, done`,
-    [id, userId]
+      WHERE user_id = $1 AND id = $2
+      RETURNING id, title, done, priority`,
+    [userId, Number(id)]
   );
   return rows[0] || null;
 }
-

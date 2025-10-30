@@ -1,26 +1,32 @@
 import express from 'express';
-import * as c from '../controllers/todosController.js';
-import { requireAuth } from '../middleware/auth.js';
+import { z } from 'zod';
+import { zodValidate } from '../middleware/zodValidate.js';
 import {
-  validateBody, validateQuery,
-  createTodoSchema, updateTodoSchema, listQuerySchema
-} from '../middleware/validate.js';
+  listTodos,
+  createTodo,
+  updateTodo,
+  deleteTodo,
+  showTodo
+} from '../controllers/todosController.js';
 
 const router = express.Router();
 
-// all todos routes require auth (user-owned)
-router.use(requireAuth);
+const idParamSchema = z.object({
+  id: z.string().regex(/^\d+$/, 'id must be a numeric string'),
+});
 
-// list with validated query (?page=&limit=&search=)
-router.get('/', validateQuery(listQuerySchema), c.list);
+const listQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
+  q: z.string().optional(),
+  done: z.enum(['true','false']).optional()
+});
 
-// get one (no body, no query validation needed)
-router.get('/:id', c.get);
-
-// create / update / delete with body validation
-router.post('/', validateBody(createTodoSchema), c.create);
-router.patch('/:id', validateBody(updateTodoSchema), c.update);
-router.delete('/:id', c.remove);
+// Order matters: '/' before '/:id'
+router.get('/', zodValidate({ query: listQuerySchema }), listTodos);
+router.post('/', createTodo);
+router.patch('/:id', zodValidate({ params: idParamSchema }), updateTodo);
+router.delete('/:id', zodValidate({ params: idParamSchema }), deleteTodo);
+router.get('/:id', zodValidate({ params: idParamSchema }), showTodo);
 
 export default router;
-
