@@ -39,7 +39,12 @@ const authLimiter = rateLimit({
 });
 app.use('/auth', authLimiter);
 }
-app.get('/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+app.get('/health', (req, res) => {
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+  });
+});
 app.use('/auth', authRouter);
 app.use('/api/todos', todosRouter);
 const openapiText = await readFile(new URL('../docs/openapi.yaml', import.meta.url), 'utf8');
