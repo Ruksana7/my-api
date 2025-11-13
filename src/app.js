@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import { readFile } from 'fs/promises';
 import yaml from 'yaml';
-
+import requireAuth from './middleware/requireAuth.js';
 import authRouter from './routes/auth.js';
 import todosRouter from './routes/todos.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
@@ -46,7 +46,7 @@ app.get('/health', (req, res) => {
   });
 });
 app.use('/auth', authRouter);
-app.use('/api/todos', todosRouter);
+app.use('/api/todos', requireAuth, todosRouter);
 const openapiText = await readFile(new URL('../docs/openapi.yaml', import.meta.url), 'utf8');
 const openapiDoc = yaml.parse(openapiText);
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDoc));
